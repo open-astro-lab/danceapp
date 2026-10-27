@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+  <title>Dance Class Manager</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div id="app">
+    <!-- HOME -->
+    <section id="view-home" class="view">
+      <header class="topbar">
+        <h1>💃 Dance Classes</h1>
+        <p class="subtitle">Fees &amp; student manager</p>
+      </header>
+
+      <div id="due-banner" class="due-banner hidden">
+        <div class="due-title">📢 Fees due today</div>
+        <ul id="due-list"></ul>
+      </div>
+
+      <div class="batch-grid">
+        <button class="batch-card" data-batch="mwf">
+          <span class="batch-emoji">🩰</span>
+          <span class="batch-name">Monday · Wednesday · Friday</span>
+          <span class="batch-meta" id="count-mwf">0 students</span>
+        </button>
+        <button class="batch-card" data-batch="tts">
+          <span class="batch-emoji">🕺</span>
+          <span class="batch-name">Tuesday · Thursday · Saturday</span>
+          <span class="batch-meta" id="count-tts">0 students</span>
+        </button>
+        <button class="batch-card" data-batch="zumba">
+          <span class="batch-emoji">🎵</span>
+          <span class="batch-name">Zumba (Ladies)</span>
+          <span class="batch-meta" id="count-zumba">Tue · Wed · Thu · Fri</span>
+        </button>
+      </div>
+    </section>
+
+    <!-- BATCH DETAIL -->
+    <section id="view-batch" class="view hidden">
+      <header class="topbar topbar-row">
+        <button id="btn-back" class="btn ghost" type="button">← Back</button>
+        <h1 id="batch-title">Batch</h1>
+        <button id="btn-save" class="btn primary" type="button">Save</button>
+      </header>
+
+      <div class="toolbar">
+        <button id="btn-add" class="btn secondary" type="button">+ Add Student</button>
+        <button id="btn-advance" class="btn warning" type="button" title="Move every fees date to the next class day for this batch">
+          Advance 1 class day (all)
+        </button>
+      </div>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Student name</th>
+              <th>Fees date</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="student-tbody"></tbody>
+        </table>
+        <p id="empty-msg" class="empty hidden">No students yet. Tap <strong>Add Student</strong> to begin.</p>
+      </div>
+    </section>
+  </div>
+
+  <!-- ADD / EDIT MODAL -->
+  <div id="modal" class="modal hidden">
+    <div class="modal-card">
+      <h2 id="modal-title">Add Student</h2>
+      <label>
+        Student name
+        <input id="input-name" type="text" placeholder="e.g. Ananya" autocomplete="name" />
+      </label>
+      <label>
+        Fees date
+        <input id="input-fees" type="date" />
+      </label>
+      <p class="hint">Next reminder appears on this date each month (same day number).</p>
+      <div class="modal-actions">
+        <button id="modal-cancel" class="btn ghost" type="button">Cancel</button>
+        <button id="modal-ok" class="btn primary" type="button">OK</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast hidden"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
