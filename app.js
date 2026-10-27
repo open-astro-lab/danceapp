@@ -80,40 +80,46 @@ function isFeesDueToday(feesISO) {
   return parseISO(feesISO).getDate() === new Date().getDate();
 }
 
-/** After fees collected: move due date to same day next month */
-function advanceFeesOneMonth(iso) {
-  const d = parseISO(iso);
-  const day = d.getDate();
-  d.setMonth(d.getMonth() + 1);
-  // handle month overflow (e.g. Jan 31 → Mar 3) by clamping to last day of target month
-  if (d.getDate() !== day) {
-    d.setDate(0); // last day of previous month
+/** Dismissals: hide from "fees due today" notification only (not from student table) */
+const DISMISS_KEY = 'dance-class-due-dismissed-v1';
+
+function loadDismissed() {
+  try {
+    return JSON.parse(localStorage.getItem(DISMISS_KEY) || '{}') || {};
+  } catch {
+    return {};
   }
-  return toISO(d);
+}
+
+function saveDismissed(map) {
+  try {
+    localStorage.setItem(DISMISS_KEY, JSON.stringify(map));
+  } catch (e) {}
+}
+
+function dismissKey(batchId, name, feesDate) {
+  return `${batchId}|${name}|${feesDate}|${todayISO()}`;
+}
+
+function isDismissedToday(batchId, name, feesDate) {
+  const map = loadDismissed();
+  return !!map[dismissKey(batchId, name, feesDate)];
 }
 
 /**
- * Mark fees done for one student in one batch:
- * - moves fees date +1 month so they leave "due today"
- * - saves locally and tries cloud
+ * Done on notification only:
+ * - clears from notification list for today
+ * - keeps student in fees table
+ * - does not change fees date (next month same day notifies again)
  */
-async function markFeesDone(batchId, index) {
+function markFeesDone(batchId, index) {
   const s = data[batchId]?.[index];
   if (!s) return;
-  const old = s.feesDate;
-  s.feesDate = advanceFeesOneMonth(old);
-  dirty = true;
-  saveLocal();
-  updateHomeCounts();
+  const map = loadDismissed();
+  map[dismissKey(batchId, s.name, s.feesDate)] = true;
+  saveDismissed(map);
   renderDueBanner();
-  if (currentBatch === batchId) renderTable();
-  toast(`${s.name}: fees marked done → next due ${formatDisplay(s.feesDate)}`);
-  try {
-    await saveToServer();
-    setStatus('Saved on this device + shared for everyone', 'ok');
-  } catch (e) {
-    setStatus('Saved on this device only (cloud sync failed)', 'err');
-  }
+  toast(`${s.name} cleared from today's notifications (still in fees list)`);
 }
 function escapeHtml(str) {
   return String(str)
@@ -258,7 +264,7 @@ function renderDueBanner() {
   const due = [];
   for (const [batchId, students] of Object.entries(data)) {
     students.forEach((s, index) => {
-      if (isFeesDueToday(s.feesDate)) {
+      if (isFeesDueToday(s.feesDate) && !isDismissedToday(batchId, s.name, s.feesDate)) {
         due.push({
           name: s.name,
           batchId,
@@ -304,7 +310,7 @@ function renderTable() {
         <td class="name-cell">${escapeHtml(s.name)}</td>
         <td class="fees-cell">${formatDisplay(s.feesDate)}</td>
         <td class="actions">
-          <div class="menu-wrap">
+          <div class="menu-wrap ${openMenuIndex === i ? 'open' : ''}">
             <button type="button" class="btn ghost sm btn-menu" data-menu="${i}" aria-label="More">⋯</button>
             <div class="menu ${openMenuIndex === i ? '' : 'hidden'}">
               <button type="button" data-edit="${i}">Edit</button>
@@ -387,7 +393,7 @@ function bind() {
     const batchId = btn.dataset.doneBatch;
     const index = Number(btn.dataset.doneIndex);
     const name = data[batchId]?.[index]?.name || 'this student';
-    if (!confirm(`Mark fees collected for ${name}?\nThey will leave today's list and next due will be next month.`)) return;
+    if (!confirm(`Clear ${name} from today's fees notifications?\n\nThey stay in the student list. Next month they can appear again.`)) return;
     markFeesDone(batchId, index);
   });
   $('btn-add').addEventListener('click', () => openModal('add'));
