@@ -160,3 +160,11 @@ tr.clickable:hover td { background: rgba(196,77,255,.08); }
   th:first-child, td:first-child { display: none; }
   .toolbar .btn { flex: 1; }
 }
+
+.sync-status {
+  margin: 8px 0 0;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+.sync-status.ok { color: var(--ok); }
+.sync-status.err { color: var(--danger); }

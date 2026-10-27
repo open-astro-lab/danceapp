@@ -1,37 +1,46 @@
 # Dance Class Manager
 
-Simple web app for managing dance-class students and monthly fees dates.
+Shared web app for dance-class students and monthly fees dates.  
+**Everyone who opens the app sees the same list** (data stored in this GitHub repo via Vercel).
 
-**Live (GitHub Pages):** enable Pages on this repo (Settings → Pages → Deploy from branch `main` / root), then open:
+## Deploy on Vercel (required for shared Save)
 
-`https://open-astro-lab.github.io/danceapp/`
+1. Import repo `open-astro-lab/danceapp` into Vercel.
+2. **Settings → Environment Variables** → add:
+
+| Name | Value |
+|------|--------|
+| `GITHUB_TOKEN` | A GitHub fine-grained token with **Contents: Read and write** on this repo |
+
+3. Deploy.
+
+App URL example: `https://danceapp.vercel.app`
+
+### WordPress
+
+```html
+<iframe src="https://YOUR-VERCEL-URL/" width="100%" height="800" style="border:0;border-radius:12px;"></iframe>
+```
+
+## How to use
+
+1. Open app → see **Fees due today** (same day-of-month as fees date).
+2. Open a batch → **Add Student** (name + fees date).
+3. Edit: tap a row. Remove: **⋯**.
+4. **Advance 1 class day (all)** → next **class day** for that batch (not +1 calendar day).
+5. Tap **Save** → writes to shared storage; anyone opening the app sees the update.
+6. **Refresh list** on the home screen to pull the latest.
 
 ## Batches
 
 | Batch | Class days |
 |-------|------------|
-| Monday · Wednesday · Friday | Mon, Wed, Fri |
-| Tuesday · Thursday · Saturday | Tue, Thu, Sat |
-| Zumba (Ladies) | Tue, Wed, Thu, Fri |
+| Mon · Wed · Fri | 1, 3, 5 |
+| Tue · Thu · Sat | 2, 4, 6 |
+| Zumba | Tue–Fri |
 
-## Features
+## Files
 
-- **Home** — choose a batch; see **Fees due today** (same day-of-month as the stored fees date)
-- **Add / Edit / Remove** students (name + fees date)
-- **Save** — stores data in the browser (`localStorage`)
-- **Advance 1 class day (all)** — moves every fees date to the **next class day** for that batch (not +1 calendar day). Weekend gaps are handled (e.g. Fri → Mon for MWF, Sat → Tue for TTS, Fri → Tue for Zumba)
-
-## WordPress
-
-1. Publish this site on GitHub Pages.
-2. In WordPress, add a **Custom HTML** block or menu link to the Pages URL, or embed:
-
-```html
-<iframe src="https://open-astro-lab.github.io/danceapp/" width="100%" height="800" style="border:0;border-radius:12px;"></iframe>
-```
-
-Data is saved in the browser on the device your mother uses. Use the same browser/device for ongoing work, or export is not required for normal use.
-
-## Tech
-
-Static HTML + CSS + JavaScript. No server or login required.
+- `index.html` / `styles.css` / `app.js` — UI  
+- `api/data.js` — Vercel API (GET/POST shared `data.json`)  
+- `data.json` — shared database in the repo  

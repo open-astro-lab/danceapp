@@ -1,67 +1,55 @@
 /**
- * Dance Class Manager
- * Batches:
- *  - mwf: Mon / Wed / Fri
- *  - tts: Tue / Thu / Sat
- *  - zumba: Tue / Wed / Thu / Fri
- *
- * "Advance 1 class day" moves fees date to the next class day for that batch
- * (not +1 calendar day). Weekend gaps are handled correctly.
+ * Dance Class Manager — shared data for everyone (via /api/data on Vercel).
+ * Batches: mwf (Mon/Wed/Fri), tts (Tue/Thu/Sat), zumba (Tue–Fri)
  */
-
-const STORAGE_KEY = 'dance-class-manager-v1';
 
 const BATCHES = {
   mwf: {
     id: 'mwf',
     title: 'Monday · Wednesday · Friday',
-    // JS getDay(): 0 Sun ... 6 Sat
-    classDays: [1, 3, 5], // Mon, Wed, Fri
+    classDays: [1, 3, 5],
   },
   tts: {
     id: 'tts',
     title: 'Tuesday · Thursday · Saturday',
-    classDays: [2, 4, 6], // Tue, Thu, Sat
+    classDays: [2, 4, 6],
   },
   zumba: {
     id: 'zumba',
     title: 'Zumba (Ladies) — Tue · Wed · Thu · Fri',
-    classDays: [2, 3, 4, 5], // Tue–Fri
+    classDays: [2, 3, 4, 5],
   },
 };
 
-/** @type {{ mwf: Student[], tts: Student[], zumba: Student[] }} */
 let data = { mwf: [], tts: [], zumba: [] };
+let dataSha = null;
 let currentBatch = null;
-let editIndex = null; // null = add mode
+let editIndex = null;
 let openMenuIndex = null;
+let dirty = false;
 
-// ---------- storage ----------
-function load() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return;
-    const parsed = JSON.parse(raw);
-    data = {
-      mwf: Array.isArray(parsed.mwf) ? parsed.mwf : [],
-      tts: Array.isArray(parsed.tts) ? parsed.tts : [],
-      zumba: Array.isArray(parsed.zumba) ? parsed.zumba : [],
-    };
-  } catch (e) {
-    console.warn('Load failed', e);
-  }
+function $(id) {
+  return document.getElementById(id);
 }
 
-function save() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-  toast('Saved ✓');
-  updateHomeCounts();
-  renderDueBanner();
+function toast(msg, isError) {
+  const el = $('toast');
+  el.textContent = msg;
+  el.classList.toggle('error', !!isError);
+  el.classList.remove('hidden');
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => el.classList.add('hidden'), 2500);
 }
 
-// ---------- date helpers ----------
+function setStatus(text, kind) {
+  const el = $('sync-status');
+  if (!el) return;
+  el.textContent = text;
+  el.className = 'sync-status' + (kind ? ' ' + kind : '');
+}
+
+// ---------- dates ----------
 function parseISO(iso) {
-  // local date from YYYY-MM-DD
   const [y, m, d] = iso.split('-').map(Number);
   return new Date(y, m - 1, d);
 }
@@ -79,8 +67,7 @@ function todayISO() {
 
 function formatDisplay(iso) {
   if (!iso) return '—';
-  const d = parseISO(iso);
-  return d.toLocaleDateString(undefined, {
+  return parseISO(iso).toLocaleDateString(undefined, {
     weekday: 'short',
     day: 'numeric',
     month: 'short',
@@ -88,21 +75,12 @@ function formatDisplay(iso) {
   });
 }
 
-/**
- * Advance to the next class day for this batch (strictly after the given date).
- * Examples (MWF): Fri → Mon (+3). Wed → Fri (+2).
- * Examples (TTS): Sat → Tue (+3). Tue → Thu (+2).
- * Examples (Zumba Tue–Fri): Fri → Tue (+4).
- */
 function nextClassDay(iso, classDays) {
   const d = parseISO(iso);
   for (let i = 1; i <= 14; i++) {
     d.setDate(d.getDate() + 1);
-    if (classDays.includes(d.getDay())) {
-      return toISO(d);
-    }
+    if (classDays.includes(d.getDay())) return toISO(d);
   }
-  // fallback (should not happen)
   d.setDate(d.getDate() + 1);
   return toISO(d);
 }
@@ -113,20 +91,76 @@ function advanceAllOneClassDay(batchId) {
     ...s,
     feesDate: nextClassDay(s.feesDate, days),
   }));
+  dirty = true;
 }
 
-// ---------- UI helpers ----------
-function $(id) {
-  return document.getElementById(id);
+function isFeesDueToday(feesISO) {
+  if (!feesISO) return false;
+  const fees = parseISO(feesISO);
+  const now = new Date();
+  return fees.getDate() === now.getDate();
 }
 
-function toast(msg, isError) {
-  const el = $('toast');
-  el.textContent = msg;
-  el.classList.toggle('error', !!isError);
-  el.classList.remove('hidden');
-  clearTimeout(toast._t);
-  toast._t = setTimeout(() => el.classList.add('hidden'), 2200);
+// ---------- API (shared for everyone) ----------
+async function loadFromServer() {
+  setStatus('Loading…', '');
+  try {
+    const res = await fetch('/api/data', { cache: 'no-store' });
+    const json = await res.json();
+    if (!res.ok || !json.ok) {
+      throw new Error(json.error || 'Failed to load');
+    }
+    data = json.data || { mwf: [], tts: [], zumba: [] };
+    dataSha = json.sha || null;
+    dirty = false;
+    setStatus('Synced — same list for everyone', 'ok');
+    return true;
+  } catch (e) {
+    console.error(e);
+    setStatus('Could not load shared data. Check Vercel setup.', 'err');
+    toast(e.message || 'Load failed', true);
+    return false;
+  }
+}
+
+async function saveToServer() {
+  setStatus('Saving…', '');
+  $('btn-save').disabled = true;
+  try {
+    const res = await fetch('/api/data', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ data, sha: dataSha }),
+    });
+    const json = await res.json();
+    if (!res.ok || !json.ok) {
+      throw new Error(json.error || 'Save failed');
+    }
+    data = json.data || data;
+    dataSha = json.sha || dataSha;
+    dirty = false;
+    setStatus('Saved — everyone will see this', 'ok');
+    toast('Saved for everyone ✓');
+    updateHomeCounts();
+    renderDueBanner();
+    return true;
+  } catch (e) {
+    console.error(e);
+    setStatus('Save failed', 'err');
+    toast(e.message || 'Save failed', true);
+    return false;
+  } finally {
+    $('btn-save').disabled = false;
+  }
+}
+
+// ---------- UI ----------
+function escapeHtml(str) {
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
 }
 
 function showView(name) {
@@ -144,27 +178,6 @@ function updateHomeCounts() {
       el.textContent = `${n} student${n === 1 ? '' : 's'}`;
     }
   }
-}
-
-/**
- * Fees due "today" means the calendar day-of-month of feesDate equals today's day-of-month
- * AND we are in a later month/year than the stored fees date's month
- * OR the stored fees date is exactly today.
- *
- * Simpler rule matching the request:
- * Show student if feesDate's day-of-month === today's day-of-month
- * (monthly anniversary). Also show if feesDate === today exactly.
- *
- * Even clearer for the teacher:
- * Show if the day number matches today (e.g. 27th every month),
- * so on Nov 27, anyone with fees date *27 of any month* appears.
- */
-function isFeesDueToday(feesISO) {
-  if (!feesISO) return false;
-  const fees = parseISO(feesISO);
-  const now = new Date();
-  // exact match on day-of-month (monthly cycle)
-  return fees.getDate() === now.getDate();
 }
 
 function renderDueBanner() {
@@ -188,17 +201,9 @@ function renderDueBanner() {
   list.innerHTML = due
     .map(
       (d) =>
-        `<li><strong>${escapeHtml(d.name)}</strong> — ${escapeHtml(d.batch)} (fees date ${formatDisplay(d.feesDate)})</li>`
+        `<li><strong>${escapeHtml(d.name)}</strong> — ${escapeHtml(d.batch)} (${formatDisplay(d.feesDate)})</li>`
     )
     .join('');
-}
-
-function escapeHtml(str) {
-  return String(str)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
 }
 
 function renderTable() {
@@ -228,7 +233,6 @@ function renderTable() {
     .join('');
 }
 
-// ---------- modal ----------
 function openModal(mode, index) {
   editIndex = mode === 'edit' ? index : null;
   $('modal-title').textContent = mode === 'edit' ? 'Edit Student' : 'Add Student';
@@ -265,13 +269,14 @@ function submitModal() {
   } else {
     data[currentBatch][editIndex] = { name, feesDate };
   }
+  dirty = true;
   closeModal();
   openMenuIndex = null;
   renderTable();
-  toast(editIndex === null ? 'Student added (tap Save)' : 'Student updated (tap Save)');
+  updateHomeCounts();
+  toast('Changed — tap Save so everyone sees it');
 }
 
-// ---------- navigation ----------
 function openBatch(id) {
   currentBatch = id;
   openMenuIndex = null;
@@ -288,15 +293,19 @@ function goHome() {
   renderDueBanner();
 }
 
-// ---------- events ----------
 function bind() {
   document.querySelectorAll('.batch-card').forEach((btn) => {
     btn.addEventListener('click', () => openBatch(btn.dataset.batch));
   });
 
   $('btn-back').addEventListener('click', goHome);
-  $('btn-save').addEventListener('click', () => {
-    save();
+  $('btn-save').addEventListener('click', () => saveToServer());
+  $('btn-refresh').addEventListener('click', async () => {
+    await loadFromServer();
+    updateHomeCounts();
+    renderDueBanner();
+    if (currentBatch) renderTable();
+    toast('Refreshed');
   });
   $('btn-add').addEventListener('click', () => openModal('add'));
   $('btn-advance').addEventListener('click', () => {
@@ -306,15 +315,15 @@ function bind() {
       return;
     }
     const ok = confirm(
-      'Advance every student\'s fees date by ONE class day for this batch?\n\n' +
-        'This jumps to the next class day (skips days with no class, including weekend gaps).\n\n' +
-        'Remember to tap Save afterwards.'
+      "Advance every student's fees date by ONE class day for this batch?\n\n" +
+        'Skips days with no class (including weekend gaps).\n\n' +
+        'Tap Save afterwards so everyone sees the new dates.'
     );
     if (!ok) return;
     advanceAllOneClassDay(currentBatch);
     openMenuIndex = null;
     renderTable();
-    toast('All fees dates advanced by 1 class day (tap Save)');
+    toast('Advanced — tap Save');
   });
 
   $('modal-cancel').addEventListener('click', closeModal);
@@ -326,7 +335,6 @@ function bind() {
     if (e.key === 'Escape') closeModal();
   });
 
-  // table delegation
   $('student-tbody').addEventListener('click', (e) => {
     const menuBtn = e.target.closest('[data-menu]');
     if (menuBtn) {
@@ -351,9 +359,11 @@ function bind() {
       const name = data[currentBatch][i]?.name || 'this student';
       if (confirm(`Remove ${name}?`)) {
         data[currentBatch].splice(i, 1);
+        dirty = true;
         openMenuIndex = null;
         renderTable();
-        toast('Removed (tap Save)');
+        updateHomeCounts();
+        toast('Removed — tap Save');
       }
       return;
     }
@@ -367,14 +377,22 @@ function bind() {
   document.addEventListener('click', (e) => {
     if (!e.target.closest('.menu-wrap') && openMenuIndex !== null) {
       openMenuIndex = null;
-      renderTable();
+      if (currentBatch) renderTable();
+    }
+  });
+
+  window.addEventListener('beforeunload', (e) => {
+    if (dirty) {
+      e.preventDefault();
+      e.returnValue = '';
     }
   });
 }
 
-// ---------- init ----------
-load();
-bind();
-updateHomeCounts();
-renderDueBanner();
-showView('home');
+(async function init() {
+  bind();
+  showView('home');
+  await loadFromServer();
+  updateHomeCounts();
+  renderDueBanner();
+})();
