@@ -5,6 +5,11 @@
       "feesDate": "2026-10-28"
     }
   ],
-  "tts": [],
+  "tts": [
+    {
+      "name": "Kiara",
+      "feesDate": "2026-11-08"
+    }
+  ],
   "zumba": []
 }
