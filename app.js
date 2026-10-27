@@ -79,6 +79,42 @@ function isFeesDueToday(feesISO) {
   if (!feesISO) return false;
   return parseISO(feesISO).getDate() === new Date().getDate();
 }
+
+/** After fees collected: move due date to same day next month */
+function advanceFeesOneMonth(iso) {
+  const d = parseISO(iso);
+  const day = d.getDate();
+  d.setMonth(d.getMonth() + 1);
+  // handle month overflow (e.g. Jan 31 → Mar 3) by clamping to last day of target month
+  if (d.getDate() !== day) {
+    d.setDate(0); // last day of previous month
+  }
+  return toISO(d);
+}
+
+/**
+ * Mark fees done for one student in one batch:
+ * - moves fees date +1 month so they leave "due today"
+ * - saves locally and tries cloud
+ */
+async function markFeesDone(batchId, index) {
+  const s = data[batchId]?.[index];
+  if (!s) return;
+  const old = s.feesDate;
+  s.feesDate = advanceFeesOneMonth(old);
+  dirty = true;
+  saveLocal();
+  updateHomeCounts();
+  renderDueBanner();
+  if (currentBatch === batchId) renderTable();
+  toast(`${s.name}: fees marked done → next due ${formatDisplay(s.feesDate)}`);
+  try {
+    await saveToServer();
+    setStatus('Saved on this device + shared for everyone', 'ok');
+  } catch (e) {
+    setStatus('Saved on this device only (cloud sync failed)', 'err');
+  }
+}
 function escapeHtml(str) {
   return String(str)
     .replace(/&/g, '&amp;').replace(/</g, '&lt;')
@@ -221,9 +257,15 @@ function updateHomeCounts() {
 function renderDueBanner() {
   const due = [];
   for (const [batchId, students] of Object.entries(data)) {
-    students.forEach((s) => {
+    students.forEach((s, index) => {
       if (isFeesDueToday(s.feesDate)) {
-        due.push({ name: s.name, batch: BATCHES[batchId].title, feesDate: s.feesDate });
+        due.push({
+          name: s.name,
+          batchId,
+          index,
+          batch: BATCHES[batchId].title,
+          feesDate: s.feesDate,
+        });
       }
     });
   }
@@ -236,7 +278,18 @@ function renderDueBanner() {
   }
   banner.classList.remove('hidden');
   list.innerHTML = due
-    .map((d) => `<li><strong>${escapeHtml(d.name)}</strong> — ${escapeHtml(d.batch)} (${formatDisplay(d.feesDate)})</li>`)
+    .map(
+      (d) => `<li class="due-item">
+        <div class="due-item-text">
+          <strong>${escapeHtml(d.name)}</strong>
+          <span class="due-item-meta">${escapeHtml(d.batch)} · ${formatDisplay(d.feesDate)}</span>
+        </div>
+        <button type="button" class="btn primary sm btn-due-done"
+          data-done-batch="${d.batchId}" data-done-index="${d.index}">
+          Done
+        </button>
+      </li>`
+    )
     .join('');
 }
 function renderTable() {
@@ -255,7 +308,7 @@ function renderTable() {
             <button type="button" class="btn ghost sm btn-menu" data-menu="${i}" aria-label="More">⋯</button>
             <div class="menu ${openMenuIndex === i ? '' : 'hidden'}">
               <button type="button" data-edit="${i}">Edit</button>
-              <button type="button" class="danger-text" data-remove="${i}">Remove</button>
+              <button type="button" class="danger-text" data-remove="${i}">Delete student</button>
             </div>
           </div>
         </td>
@@ -326,6 +379,17 @@ function bind() {
     if (currentBatch) renderTable();
     toast('Refreshed');
   });
+
+  // Fees due today → Done (collect fees, hide from list, next month)
+  $('due-list').addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-done-batch]');
+    if (!btn) return;
+    const batchId = btn.dataset.doneBatch;
+    const index = Number(btn.dataset.doneIndex);
+    const name = data[batchId]?.[index]?.name || 'this student';
+    if (!confirm(`Mark fees collected for ${name}?\nThey will leave today's list and next due will be next month.`)) return;
+    markFeesDone(batchId, index);
+  });
   $('btn-add').addEventListener('click', () => openModal('add'));
   $('btn-advance').addEventListener('click', () => {
     if (!currentBatch || !data[currentBatch].length) return toast('No students', true);
@@ -366,7 +430,7 @@ function bind() {
       e.stopPropagation();
       const i = Number(removeBtn.dataset.remove);
       const name = data[currentBatch][i]?.name || 'student';
-      if (!confirm(`Remove ${name}?`)) return;
+      if (!confirm(`Delete student ${name}? This cannot be undone.`)) return;
       data[currentBatch].splice(i, 1);
       dirty = true;
       saveLocal();
